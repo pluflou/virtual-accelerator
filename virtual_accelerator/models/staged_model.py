@@ -153,6 +153,7 @@ class StagedModel(LUMEModel):
 from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
 from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
 
+
 def get_cu_hxr_staged_model():
     """
     Returns
@@ -163,12 +164,14 @@ def get_cu_hxr_staged_model():
 
     injector_surrogate = InjectorSurrogate()
     cu_hxr_bmad_model = get_cu_hxr_bmad_model()
+    print(
+        "Setting track_type to 1 for cu_hxr_bmad_model to enable tracking in the staged model."
+    )
     cu_hxr_bmad_model.set({"track_type": 1})
+    print(
+        "Staging the injector surrogate and CU HXR BMAD model together in a StagedModel instance."
+    )
 
     staged_model = StagedModel([injector_surrogate, cu_hxr_bmad_model])
 
     return staged_model
-
-
-
-    
