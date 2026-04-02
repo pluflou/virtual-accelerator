@@ -1,7 +1,7 @@
 !ASCII::3
 0 ! ix_ele, not used
 1 ! n_bunch
-20 ! n_particle
+2000 ! n_particle
 BEGIN_BUNCH
 electron
 5.000000000002845e-12  ! bunch_charge

@@ -15,7 +15,7 @@ The data source is swappable:
 import marimo
 
 __generated_with = "0.22.0"
-app = marimo.App(width="full", app_title="Live Beam Monitor")
+app = marimo.App(width="full", app_title="LUME Live Beam Monitor")
 
 
 # ── Cell 0: imports & configuration ─────────────────────────────────────────
@@ -42,7 +42,7 @@ def imports():
     # ── user-facing configuration ────────────────────────────────────────────
     LCLS_LATTICE_PATH = "/Users/smiskov/SLAC/lcls-lattice"
     SCAN_PV = "QUAD:IN20:525:BCTRL"
-    IMAGE_PV = "OTRS:IN20:711:Image:ArrayData"  # match test_example.py
+    IMAGE_PV = "OTRS:IN20:711:Image:ArrayData"
     XRMS_PV = "OTRS:IN20:571:XRMS"
     YRMS_PV = "OTRS:IN20:571:YRMS"
     MAX_HISTORY = 200
@@ -77,7 +77,7 @@ def imports():
 @app.cell
 def header(mo):
     header_md = mo.md(
-        "# Live Beam Monitor\nConfigure the scan below, then press **▶ Run Scan**."
+        "# LUME Live Beam Monitor"
     )
     header_md
     return (header_md,)
@@ -87,31 +87,61 @@ def header(mo):
 @app.cell
 def controls(mo):
     use_mock_toggle = mo.ui.switch(
-        value=True, label="Use mock source (no lattice needed)"
+        value=False, label="Mock source"
     )
     mock_wait_slider = mo.ui.slider(
-        start=0.1, stop=3.0, step=0.1, value=1.0, label="Mock wait per step (s)"
+        start=0.1, stop=3.0, step=0.1, value=0.1, label="Mock wait (s)"
     )
     scan_min_slider = mo.ui.slider(
-        start=-15.0, stop=0.0, step=0.5, value=-10.0, label="Quad min (kG)"
+        start=-15.0, stop=0.0, step=0.5, value=-15.0, label="Min (kG)"
     )
     scan_max_slider = mo.ui.slider(
-        start=0.0, stop=15.0, step=0.5, value=10.0, label="Quad max (kG)"
+        start=0.0, stop=15.0, step=0.5, value=15.0, label="Max (kG)"
     )
-    scan_steps_slider = mo.ui.slider(start=3, stop=20, step=1, value=5, label="Steps")
-    run_button = mo.ui.run_button(label="▶  Run Scan")
-    stop_button = mo.ui.button(label="⏹  Stop", kind="danger")
+    scan_steps_slider = mo.ui.slider(
+        start=3, stop=50, step=1, value=5, label="Steps"
+    )
+    show_sigma_x = mo.ui.checkbox(value=True, label="σx")
+    show_sigma_y = mo.ui.checkbox(value=True, label="σy")
+    show_sigma_z = mo.ui.checkbox(value=True, label="σz")
+    show_emit_x = mo.ui.checkbox(value=True, label="εx")
+    show_emit_y = mo.ui.checkbox(value=True, label="εy")
+    show_twiss_a_beta = mo.ui.checkbox(value=True, label="a.beta")
+    show_twiss_b_beta = mo.ui.checkbox(value=True, label="b.beta")
+    run_button = mo.ui.run_button(label="▶ Run")
+    stop_button = mo.ui.button(label="⏹ Stop", kind="danger")
 
-    controls_ui = mo.vstack(
-        [
-            mo.md("## Scan Configuration"),
-            mo.hstack([use_mock_toggle, mock_wait_slider], justify="start", gap="2rem"),
-            mo.hstack(
-                [scan_min_slider, scan_max_slider, scan_steps_slider], gap="2rem"
-            ),
-            mo.hstack([run_button, stop_button], gap="1rem"),
-        ]
-    )
+    controls_ui = mo.vstack([
+        mo.hstack(
+            [
+                use_mock_toggle,
+                mock_wait_slider,
+                scan_min_slider,
+                scan_max_slider,
+                scan_steps_slider,
+                run_button,
+                mo.md("<span style='display:inline-block; width: 0.75rem;'></span>"),
+                stop_button,
+            ],
+            gap="1.5rem",
+            justify="start",
+        ),
+        mo.hstack(
+            [
+                mo.md("**Show:** "),
+                mo.md("<span style='display:inline-block; width: 0.5rem;'></span>"),
+                show_sigma_x,
+                show_sigma_y,
+                show_sigma_z,
+                show_emit_x,
+                show_emit_y,
+                show_twiss_a_beta,
+                show_twiss_b_beta,
+            ],
+            gap="0.9rem",
+            justify="start",
+        ),
+    ], gap="0.8rem")
     controls_ui
 
     return (
@@ -120,6 +150,13 @@ def controls(mo):
         scan_min_slider,
         scan_max_slider,
         scan_steps_slider,
+        show_sigma_x,
+        show_sigma_y,
+        show_sigma_z,
+        show_emit_x,
+        show_emit_y,
+        show_twiss_a_beta,
+        show_twiss_b_beta,
         run_button,
         stop_button,
         controls_ui,
@@ -153,15 +190,30 @@ def state(mo, NB_DIR, sys):
 
 # ── Cell 3: persistent dashboard setup ───────────────────────────────────────
 @app.cell
-def dashboard(plt, gridspec, ticker, np, SCAN_PV):
+def dashboard(
+    plt,
+    gridspec,
+    ticker,
+    np,
+    SCAN_PV,
+    show_sigma_x,
+    show_sigma_y,
+    show_sigma_z,
+    show_emit_x,
+    show_emit_y,
+    show_twiss_a_beta,
+    show_twiss_b_beta,
+):
     DARK = "#0d1117"
     PANEL = "#161b22"
     GRID = "#30363d"
     TXT = "#c9d1d9"
     BLUE = "#58a6ff"
     CORAL = "#f78166"
+    GOLD = "#e3b341"
     GREEN = "#3fb950"
     PURPLE = "#d2a8ff"
+    CYAN = "#79c0ff"
 
     def _style_ax(ax, title=""):
         ax.set_facecolor(PANEL)
@@ -174,22 +226,16 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
             ax.set_title(title, color=TXT, fontsize=9, pad=6)
         ax.grid(color=GRID, linewidth=0.5, linestyle="--", alpha=0.6)
 
-    fig = plt.figure(figsize=(13, 9), facecolor=DARK)
+    fig = plt.figure(figsize=(14, 9), facecolor=DARK)
     gs = gridspec.GridSpec(
-        2,
-        2,
-        figure=fig,
-        hspace=0.38,
-        wspace=0.32,
-        left=0.07,
-        right=0.97,
-        top=0.93,
-        bottom=0.09,
+        2, 2, figure=fig,
+        hspace=0.40, wspace=0.28,
+        left=0.06, right=0.97, top=0.93, bottom=0.09,
     )
 
     # image panel
-    ax_img = fig.add_subplot(gs[0, 0])
-    _style_ax(ax_img, "OTR Beam Image")
+    ax_img = fig.add_subplot(gs[1, 0])
+    _style_ax(ax_img, "OTR4 Beam Image")
     image_artist = ax_img.imshow(
         np.zeros((2, 2)),
         cmap="inferno",
@@ -205,50 +251,32 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
     colorbar.formatter.set_powerlimits((0, 0))
     colorbar.update_ticks()
     image_placeholder = ax_img.text(
-        0.5,
-        0.5,
-        "Waiting for first shot…",
-        ha="center",
-        va="center",
-        color=TXT,
-        transform=ax_img.transAxes,
-        fontsize=11,
+        0.5, 0.5, "Waiting for first shot…",
+        ha="center", va="center", color=TXT,
+        transform=ax_img.transAxes, fontsize=11,
     )
     ax_img.set_xticks([])
     ax_img.set_yticks([])
     ax_img.set_xlabel("", fontsize=8)
 
     # scatter panel
-    ax_ps = fig.add_subplot(gs[0, 1])
-    _style_ax(ax_ps, "Beam Phase-Space  x – y")
-    scatter_artist = ax_ps.scatter(
-        [], [], s=0.8, alpha=0.35, color=BLUE, rasterized=True
-    )
+    ax_ps = fig.add_subplot(gs[0, 0])
+    _style_ax(ax_ps, "Beam Phase-Space  x – px at OTR2")
+    scatter_artist = ax_ps.scatter([], [], s=0.8, alpha=0.35, color=BLUE, rasterized=True)
     scatter_placeholder = ax_ps.text(
-        0.5,
-        0.5,
-        "Waiting for first shot…",
-        ha="center",
-        va="center",
-        color=TXT,
-        transform=ax_ps.transAxes,
-        fontsize=11,
+        0.5, 0.5, "Waiting for first shot…",
+        ha="center", va="center", color=TXT,
+        transform=ax_ps.transAxes, fontsize=11,
     )
     ax_ps.set_xlabel("x  (µm)", fontsize=8)
-    ax_ps.set_ylabel("y  (µm)", fontsize=8)
+    ax_ps.set_ylabel("px  (eV/c)", fontsize=8)
 
-    # timeseries panel
-    ax_ts = fig.add_subplot(gs[1, :])
-    _style_ax(ax_ts, "Scalar Diagnostics vs Quad Setting")
-    line_x = ax_ts.plot(
-        [], [], color=BLUE, lw=1.8, marker="o", ms=5, label="σ_x  (µm)"
-    )[0]
-    line_y = ax_ts.plot(
-        [], [], color=CORAL, lw=1.8, marker="s", ms=5, label="σ_y  (µm)"
-    )[0]
-    line_z = ax_ts.plot(
-        [], [], color="#e3b341", lw=1.8, marker="D", ms=4, label="σ_z  (µm)"
-    )[0]
+    # scalar timeseries panel
+    ax_ts = fig.add_subplot(gs[0, 1])
+    _style_ax(ax_ts, "Scalar Diagnostics vs Quad Setting at OTR2")
+    line_x = ax_ts.plot([], [], color=BLUE, lw=1.8, marker="o", ms=5, label="σ_x  (µm)")[0]
+    line_y = ax_ts.plot([], [], color=CORAL, lw=1.8, marker="s", ms=5, label="σ_y  (µm)")[0]
+    line_z = ax_ts.plot([], [], color=GOLD, lw=1.8, marker="D", ms=4, label="σ_z  (µm)")[0]
     ax_ts.set_xlabel(f"{SCAN_PV}  (kG)", fontsize=8)
     ax_ts.set_ylabel("RMS beam size  (µm)", fontsize=8)
     vline = ax_ts.axvline(0.0, color="white", lw=1.0, alpha=0.5, linestyle=":")
@@ -260,53 +288,31 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
     ax_em.yaxis.label.set_color(TXT)
     for sp in ax_em.spines.values():
         sp.set_color(GRID)
-    line_emx = ax_em.plot(
-        [],
-        [],
-        color=GREEN,
-        lw=1.8,
-        marker="^",
-        ms=5,
-        linestyle="--",
-        label="ε_n,x  (µm·rad)",
-    )[0]
-    line_emy = ax_em.plot(
-        [],
-        [],
-        color=PURPLE,
-        lw=1.8,
-        marker="v",
-        ms=5,
-        linestyle="--",
-        label="ε_n,y  (µm·rad)",
-    )[0]
+    line_emx = ax_em.plot([], [], color=GREEN, lw=1.8, marker="^", ms=5,
+                          linestyle="--", label="ε_n,x  (µm·rad)")[0]
+    line_emy = ax_em.plot([], [], color=PURPLE, lw=1.8, marker="v", ms=5,
+                          linestyle="--", label="ε_n,y  (µm·rad)")[0]
     ax_em.set_ylabel("Norm. emittance  (µm·rad)", fontsize=8)
     timeseries_placeholder = ax_ts.text(
-        0.5,
-        0.5,
-        "Scalar time-series will appear here once the scan starts…",
-        ha="center",
-        va="center",
-        color=TXT,
-        transform=ax_ts.transAxes,
-        fontsize=11,
+        0.5, 0.5, "Scalar time-series will appear here once the scan starts…",
+        ha="center", va="center", color=TXT,
+        transform=ax_ts.transAxes, fontsize=11,
     )
 
-    l1, lb1 = ax_ts.get_legend_handles_labels()
-    l2, lb2 = ax_em.get_legend_handles_labels()
-    ax_ts.legend(
-        l1 + l2,
-        lb1 + lb2,
-        loc="upper right",
-        fontsize=7,
-        facecolor=DARK,
-        edgecolor=GRID,
-        labelcolor=TXT,
+    # twiss panel
+    ax_twiss = fig.add_subplot(gs[1, 1])
+    _style_ax(ax_twiss, "Lattice Twiss β vs s")
+    line_twiss_a = ax_twiss.plot([], [], color=CYAN, lw=2.0, label="a.beta")[0]
+    line_twiss_b = ax_twiss.plot([], [], color=GOLD, lw=2.0, label="b.beta")[0]
+    ax_twiss.set_xlabel("s  (m)", fontsize=8)
+    ax_twiss.set_ylabel("β  (m)", fontsize=8)
+    twiss_placeholder = ax_twiss.text(
+        0.5, 0.5, "Twiss parameters will appear here once the scan starts…",
+        ha="center", va="center", color=TXT,
+        transform=ax_twiss.transAxes, fontsize=11,
     )
 
-    title_text = fig.suptitle(
-        "Live Beam Monitor  ·  idle", color=TXT, fontsize=11, y=0.98
-    )
+    title_text = fig.suptitle("LUME Live Beam Monitor  ·  idle", color=TXT, fontsize=11, y=0.98)
 
     history_data = {
         "quads": [],
@@ -328,6 +334,63 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
         pad = max((vmax - vmin) * fraction, minimum)
         return (vmin - pad, vmax + pad)
 
+    def _refresh_scalar_legend():
+        handles = []
+        labels = []
+        for line, label in [
+            (line_x, "σ_x  (µm)"),
+            (line_y, "σ_y  (µm)"),
+            (line_z, "σ_z  (µm)"),
+            (line_emx, "ε_n,x  (µm·rad)"),
+            (line_emy, "ε_n,y  (µm·rad)"),
+        ]:
+            if line.get_visible():
+                handles.append(line)
+                labels.append(label)
+        old_legend = ax_ts.get_legend()
+        if old_legend is not None:
+            old_legend.remove()
+        if handles:
+            ax_ts.legend(
+                handles, labels,
+                loc="upper right", fontsize=7,
+                facecolor=DARK, edgecolor=GRID, labelcolor=TXT,
+            )
+
+    def _refresh_twiss_legend():
+        handles = []
+        labels = []
+        for line, label in [
+            (line_twiss_a, "a.beta"),
+            (line_twiss_b, "b.beta"),
+        ]:
+            if line.get_visible():
+                handles.append(line)
+                labels.append(label)
+        old_legend = ax_twiss.get_legend()
+        if old_legend is not None:
+            old_legend.remove()
+        if handles:
+            ax_twiss.legend(
+                handles, labels,
+                loc="upper right", fontsize=7,
+                facecolor=DARK, edgecolor=GRID, labelcolor=TXT,
+            )
+
+    def apply_visibility():
+        line_x.set_visible(show_sigma_x.value)
+        line_y.set_visible(show_sigma_y.value)
+        line_z.set_visible(show_sigma_z.value)
+        line_emx.set_visible(show_emit_x.value)
+        line_emy.set_visible(show_emit_y.value)
+        line_twiss_a.set_visible(show_twiss_a_beta.value)
+        line_twiss_b.set_visible(show_twiss_b_beta.value)
+        _refresh_scalar_legend()
+        _refresh_twiss_legend()
+        fig.canvas.draw_idle()
+        if hasattr(fig.canvas, "flush_events"):
+            fig.canvas.flush_events()
+
     def reset_dashboard():
         history_data["quads"].clear()
         history_data["xrms"].clear()
@@ -338,6 +401,10 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
 
         image_artist.set_visible(False)
         image_placeholder.set_visible(True)
+        image_artist.set_data(np.zeros((2, 2)))
+        image_artist.set_clim(0.0, 1.0)
+        colorbar.update_normal(image_artist)
+        colorbar.update_ticks()
         ax_img.set_xlabel("", fontsize=8)
 
         scatter_artist.set_offsets(np.empty((0, 2)))
@@ -348,16 +415,22 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
         line_z.set_data([], [])
         line_emx.set_data([], [])
         line_emy.set_data([], [])
+        line_twiss_a.set_data([], [])
+        line_twiss_b.set_data([], [])
         vline.set_visible(False)
         timeseries_placeholder.set_visible(True)
-        title_text.set_text("Live Beam Monitor  ·  idle")
+        twiss_placeholder.set_visible(True)
+        title_text.set_text("LUME Live Beam Monitor  ·  idle")
 
         ax_ts.set_xlim(-1.0, 1.0)
         ax_ts.set_ylim(-1.0, 1.0)
         ax_em.set_ylim(-1.0, 1.0)
         ax_ps.set_xlim(-1.0, 1.0)
         ax_ps.set_ylim(-1.0, 1.0)
+        ax_twiss.set_xlim(-1.0, 1.0)
+        ax_twiss.set_ylim(-1.0, 1.0)
 
+        apply_visibility()
         fig.canvas.draw_idle()
         if hasattr(fig.canvas, "flush_events"):
             fig.canvas.flush_events()
@@ -381,26 +454,14 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
             colorbar.update_ticks()
             ax_img.set_xlabel(f"{SCAN_PV} = {frame.scan_value:.2f} kG", fontsize=8)
 
-        if (
-            frame.beam_x is not None
-            and frame.beam_y is not None
-            and len(frame.beam_x) > 0
-        ):
+        if frame.beam_x is not None and frame.beam_px is not None and len(frame.beam_x) > 0:
             scatter_placeholder.set_visible(False)
-            offsets = np.column_stack((frame.beam_x, frame.beam_y))
+            offsets = np.column_stack((frame.beam_x, frame.beam_px))
             scatter_artist.set_offsets(offsets)
-            xpad = max(
-                (float(np.max(frame.beam_x)) - float(np.min(frame.beam_x))) * 0.08, 1.0
-            )
-            ypad = max(
-                (float(np.max(frame.beam_y)) - float(np.min(frame.beam_y))) * 0.08, 1.0
-            )
-            ax_ps.set_xlim(
-                float(np.min(frame.beam_x)) - xpad, float(np.max(frame.beam_x)) + xpad
-            )
-            ax_ps.set_ylim(
-                float(np.min(frame.beam_y)) - ypad, float(np.max(frame.beam_y)) + ypad
-            )
+            xpad = max((float(np.max(frame.beam_x)) - float(np.min(frame.beam_x))) * 0.08, 1.0)
+            ypad = max((float(np.max(frame.beam_px)) - float(np.min(frame.beam_px))) * 0.08, 1.0)
+            ax_ps.set_xlim(float(np.min(frame.beam_x)) - xpad, float(np.max(frame.beam_x)) + xpad)
+            ax_ps.set_ylim(float(np.min(frame.beam_px)) - ypad, float(np.max(frame.beam_px)) + ypad)
 
         history_data["quads"].append(frame.scan_value)
         history_data["xrms"].append(frame.xrms)
@@ -419,22 +480,30 @@ def dashboard(plt, gridspec, ticker, np, SCAN_PV):
         vline.set_visible(True)
 
         ax_ts.set_xlim(*_pad_bounds(history_data["quads"], minimum=0.5))
-        ax_ts.set_ylim(
-            *_pad_bounds(
-                history_data["xrms"] + history_data["yrms"] + history_data["sigmaz"],
-                minimum=5.0,
-            )
-        )
-        ax_em.set_ylim(
-            *_pad_bounds(history_data["emx"] + history_data["emy"], minimum=0.05)
-        )
-        title_text.set_text("Live Beam Monitor")
+        ax_ts.set_ylim(*_pad_bounds(
+            history_data["xrms"] + history_data["yrms"] + history_data["sigmaz"],
+            minimum=5.0,
+        ))
+        ax_em.set_ylim(*_pad_bounds(history_data["emx"] + history_data["emy"], minimum=0.05))
+
+        if frame.twiss_s is not None and frame.twiss_a_beta is not None and frame.twiss_b_beta is not None:
+            twiss_placeholder.set_visible(False)
+            line_twiss_a.set_data(frame.twiss_s, frame.twiss_a_beta)
+            line_twiss_b.set_data(frame.twiss_s, frame.twiss_b_beta)
+            ax_twiss.set_xlim(*_pad_bounds(frame.twiss_s, minimum=0.5))
+            ax_twiss.set_ylim(*_pad_bounds(
+                list(frame.twiss_a_beta) + list(frame.twiss_b_beta),
+                minimum=0.1,
+            ))
+
+        apply_visibility()
+        title_text.set_text(f"LUME Live Beam Monitor  ·  Step {frame.step_index + 1}")
 
         fig.canvas.draw_idle()
         if hasattr(fig.canvas, "flush_events"):
             fig.canvas.flush_events()
 
-    return fig, reset_dashboard, update_dashboard
+    return fig, reset_dashboard, update_dashboard, apply_visibility
 
 
 # ── Cell 4: dashboard display ────────────────────────────────────────────────
@@ -443,6 +512,21 @@ def dashboard_view(fig, mo):
     dashboard_widget = mo.mpl.interactive(fig)
     dashboard_widget
     return (dashboard_widget,)
+
+
+# ── Cell 4b: visibility sync ─────────────────────────────────────────────────
+@app.cell
+def visibility_sync(
+    show_sigma_x,
+    show_sigma_y,
+    show_sigma_z,
+    show_emit_x,
+    show_emit_y,
+    show_twiss_a_beta,
+    show_twiss_b_beta,
+    apply_visibility,
+):
+    apply_visibility()
 
 
 # ── Cell 5: scan launcher ────────────────────────────────────────────────────
@@ -567,3 +651,8 @@ def status_bar(status_text, mo):
     status_callout = mo.callout(mo.md(status_text()), kind="info")
     status_callout
     return (status_callout,)
+
+
+if __name__ == "__main__":
+    app.run()
+

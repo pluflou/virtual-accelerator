@@ -27,18 +27,23 @@ class BeamFrame:
     """One snapshot of beam data."""
 
     # Scalar diagnostics
-    xrms: float = 0.0  # µm
-    yrms: float = 0.0  # µm
-    sigma_z: float = 0.0  # m
-    norm_emit_x: float = 0.0  # m·rad
-    norm_emit_y: float = 0.0  # m·rad
+    xrms: float = 0.0          # µm
+    yrms: float = 0.0          # µm
+    sigma_z: float = 0.0       # m
+    norm_emit_x: float = 0.0   # m·rad
+    norm_emit_y: float = 0.0   # m·rad
 
     # 2-D OTR image (nRow × nCol), float64
     image: Optional[np.ndarray] = None
 
     # Phase-space scatter arrays (m)
     beam_x: Optional[np.ndarray] = None
-    beam_y: Optional[np.ndarray] = None
+    beam_px: Optional[np.ndarray] = None
+
+    # Twiss arrays along the lattice
+    twiss_s: Optional[np.ndarray] = None
+    twiss_a_beta: Optional[np.ndarray] = None
+    twiss_b_beta: Optional[np.ndarray] = None
 
     # Metadata
     scan_pv: str = ""
@@ -112,23 +117,26 @@ class ModelImageSource(ImageSource):
         image_pv: str = "OTRS:IN20:711:Image:ArrayData",
         xrms_pv: str = "OTRS:IN20:571:XRMS",
         yrms_pv: str = "OTRS:IN20:571:YRMS",
-        sigma_z_pv: str = "sigma_z",
-        norm_emit_x_pv: str = "norm_emit_x",
-        norm_emit_y_pv: str = "norm_emit_y",
-        particle_source: str = "output_beam",
+        # sigma_z_pv: str = "sigma_z",
+        # norm_emit_x_pv: str = "norm_emit_x",
+        # norm_emit_y_pv: str = "norm_emit_y",
+        particle_source: str = "OTR4_beam",
         max_scatter_points: int = 3000,
         reset_values: Optional[dict[str, object]] = None,
+        twiss_s_pv: str = "s",
+        twiss_a_beta_pv: str = "a.beta",
+        twiss_b_beta_pv: str = "b.beta",
     ):
         self.model = model
         self.image_pv = image_pv
         self.xrms_pv = xrms_pv
         self.yrms_pv = yrms_pv
-        self.sigma_z_pv = sigma_z_pv
-        self.norm_emit_x_pv = norm_emit_x_pv
-        self.norm_emit_y_pv = norm_emit_y_pv
         self.particle_source = particle_source
         self.max_scatter_points = max_scatter_points
         self.reset_values = reset_values or {}
+        self.twiss_s_pv = twiss_s_pv
+        self.twiss_a_beta_pv = twiss_a_beta_pv
+        self.twiss_b_beta_pv = twiss_b_beta_pv
 
     def get_frame(self, scan_pv: str, scan_value: float, step_index: int) -> BeamFrame:
         self.model.set({scan_pv: scan_value})
@@ -137,36 +145,51 @@ class ModelImageSource(ImageSource):
             self.image_pv,
             self.xrms_pv,
             self.yrms_pv,
-            self.sigma_z_pv,
-            self.norm_emit_x_pv,
-            self.norm_emit_y_pv,
+            # self.sigma_z_pv,
+            # self.norm_emit_x_pv,
+            # self.norm_emit_y_pv,
             self.particle_source,
+            self.twiss_s_pv,
+            self.twiss_a_beta_pv,
+            self.twiss_b_beta_pv,
         ]
         result = self.model.get(pvs)
 
         image = result.get(self.image_pv)
         beam = result.get(self.particle_source)
+        xrms = beam["sigma_x"] * 1e6  # m -> µm
+        yrms = beam["sigma_y"] * 1e6  # m -> µm
+        sigma_z = beam["sigma_z"]  # already in m
+        norm_emit_x = beam["norm_emit_x"]
+        norm_emit_y = beam["norm_emit_y"]
+
+        twiss_s = result.get(self.twiss_s_pv)
+        twiss_a_beta = result.get(self.twiss_a_beta_pv)
+        twiss_b_beta = result.get(self.twiss_b_beta_pv)
 
         # Downsample scatter for rendering performance
-        bx = by = None
+        bx = bpx = None
         if beam is not None:
-            x = np.asarray(beam.x)
-            y = np.asarray(beam.y)
+            x = np.asarray(beam["x"])
+            px = np.asarray(beam["px"])
             n = len(x)
             if n > self.max_scatter_points:
                 idx = np.random.choice(n, self.max_scatter_points, replace=False)
-                x, y = x[idx], y[idx]
-            bx, by = x * 1e6, y * 1e6  # convert m → µm
+                x, px = x[idx], px[idx]
+            bx, bpx = x * 1e6, px  # x: m -> um, px: eV/c
 
         return BeamFrame(
-            xrms=float(result.get(self.xrms_pv, 0.0)),
-            yrms=float(result.get(self.yrms_pv, 0.0)),
-            sigma_z=float(result.get(self.sigma_z_pv, 0.0)),
-            norm_emit_x=float(result.get(self.norm_emit_x_pv, 0.0)),
-            norm_emit_y=float(result.get(self.norm_emit_y_pv, 0.0)),
+            xrms=float(xrms),
+            yrms=float(yrms),
+            sigma_z=float(sigma_z),
+            norm_emit_x=float(norm_emit_x),
+            norm_emit_y=float(norm_emit_y),
             image=image,
             beam_x=bx,
-            beam_y=by,
+            beam_px=bpx,
+            twiss_s=None if twiss_s is None else np.asarray(twiss_s, dtype=float),
+            twiss_a_beta=None if twiss_a_beta is None else np.asarray(twiss_a_beta, dtype=float),
+            twiss_b_beta=None if twiss_b_beta is None else np.asarray(twiss_b_beta, dtype=float),
             scan_pv=scan_pv,
             scan_value=scan_value,
             step_index=step_index,
@@ -255,7 +278,12 @@ class MockImageSource(ImageSource):
 
         # Phase-space scatter
         bx = np.random.normal(0, xrms, self.n_particles)
-        by = np.random.normal(0, yrms, self.n_particles)
+        bpx = np.random.normal(0, yrms, self.n_particles)
+
+        # Simple synthetic Twiss functions along s
+        twiss_s = np.linspace(0.0, 40.0, 200)
+        twiss_a_beta = 6.0 + 1.5 * np.sin(twiss_s / 6.0 + 0.15 * scan_value)
+        twiss_b_beta = 8.0 + 2.0 * np.cos(twiss_s / 7.5 - 0.12 * scan_value)
 
         return BeamFrame(
             xrms=xrms,
@@ -265,7 +293,10 @@ class MockImageSource(ImageSource):
             norm_emit_y=norm_emit_y,
             image=image,
             beam_x=bx,
-            beam_y=by,
+            beam_px=bpx,
+            twiss_s=twiss_s,
+            twiss_a_beta=twiss_a_beta,
+            twiss_b_beta=twiss_b_beta,
             scan_pv=scan_pv,
             scan_value=scan_value,
             step_index=step_index,
