@@ -27,11 +27,11 @@ class BeamFrame:
     """One snapshot of beam data."""
 
     # Scalar diagnostics
-    xrms: float = 0.0          # µm
-    yrms: float = 0.0          # µm
-    sigma_z: float = 0.0       # m
-    norm_emit_x: float = 0.0   # m·rad
-    norm_emit_y: float = 0.0   # m·rad
+    xrms: float = 0.0  # µm
+    yrms: float = 0.0  # µm
+    sigma_z: float = 0.0  # m
+    norm_emit_x: float = 0.0  # m·rad
+    norm_emit_y: float = 0.0  # m·rad
 
     # 2-D OTR image (nRow × nCol), float64
     image: Optional[np.ndarray] = None
@@ -188,8 +188,12 @@ class ModelImageSource(ImageSource):
             beam_x=bx,
             beam_px=bpx,
             twiss_s=None if twiss_s is None else np.asarray(twiss_s, dtype=float),
-            twiss_a_beta=None if twiss_a_beta is None else np.asarray(twiss_a_beta, dtype=float),
-            twiss_b_beta=None if twiss_b_beta is None else np.asarray(twiss_b_beta, dtype=float),
+            twiss_a_beta=None
+            if twiss_a_beta is None
+            else np.asarray(twiss_a_beta, dtype=float),
+            twiss_b_beta=None
+            if twiss_b_beta is None
+            else np.asarray(twiss_b_beta, dtype=float),
             scan_pv=scan_pv,
             scan_value=scan_value,
             step_index=step_index,

@@ -1,5 +1,3 @@
-import matplotlib.pyplot as plt
-import numpy as np
 from virtual_accelerator.models.staged_model import get_cu_hxr_staged_model
 import os
 
