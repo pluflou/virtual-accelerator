@@ -2,6 +2,8 @@ from typing import Any
 from lume.model import LUMEModel
 from lume.variables.particle_group import ParticleGroupVariable
 from lume.variables.variable import Variable
+from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
+from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
 
 
 class StagedModel(LUMEModel):
@@ -150,12 +152,19 @@ class StagedModel(LUMEModel):
 
 
 # get lume model instances for each stage of the accelerator
+<<<<<<< HEAD
 from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
 from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
 
 
-def get_cu_hxr_staged_model():
+def get_cu_hxr_staged_model(**kwargs) -> StagedModel:
     """
+
+    Parameters
+    ----------
+    **kwargs:
+        Keyword arguments to be passed to the bmad LUMEModel instances as needed.
+
     Returns
     -------
     StagedModel
@@ -163,14 +172,16 @@ def get_cu_hxr_staged_model():
     """
 
     injector_surrogate = InjectorSurrogate()
-    cu_hxr_bmad_model = get_cu_hxr_bmad_model(end_element="OTR4", track_beam=True)
-    print(
-        "Setting track_type to 1 for cu_hxr_bmad_model to enable tracking in the staged model."
-    )
-    cu_hxr_bmad_model.set({"track_type": 1})
-    print(
-        "Staging the injector surrogate and CU HXR BMAD model together in a StagedModel instance."
-    )
+
+    #cu_hxr_bmad_model = get_cu_hxr_bmad_model(end_element="OTR4", track_beam=True)
+    # print(
+    #     "Setting track_type to 1 for cu_hxr_bmad_model to enable tracking in the staged model."
+    # )
+    # cu_hxr_bmad_model.set({"track_type": 1})
+    # print(
+    #     "Staging the injector surrogate and CU HXR BMAD model together in a StagedModel instance."
+    # )
+    cu_hxr_bmad_model = get_cu_hxr_bmad_model(**kwargs)
 
     staged_model = StagedModel([injector_surrogate, cu_hxr_bmad_model])
 

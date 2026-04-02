@@ -51,7 +51,7 @@ def to_openpmd_particlegroup(beam) -> "openpmd.ParticleGroup":  # noqa: F821
         "py": py.numpy(),
         "pz": pz.numpy(),
         "t": t.numpy(),
-        "weight": beam.particle_charges.numpy(),  # need to make at least 1d
+        "weight": -beam.particle_charges.numpy(),  # need to make at least 1d
         "status": status.int().numpy(),  # need int
         "species": beam.species.name,
     }
@@ -94,6 +94,8 @@ class InjectorSurrogate(LUMEModel):
         self.n_particles = n_particles
 
         self._cache = self.model._cache
+        # self.set({})
+        # self.update_state()
 
     def _get(self, names):
         return {name: self._cache[name] for name in names}
@@ -128,3 +130,12 @@ class InjectorSurrogate(LUMEModel):
 
     def update_state(self):
         self._cache.update(self.model.get(list(self.model.supported_variables.keys())))
+
+        # # replace torch tensors with floats
+        # for key, value in self._cache.items():
+        #     if isinstance(value, torch.Tensor):
+        #         self._cache[key] = value.item()
+        #
+        # # update a outgoing beam distribution
+        # beam = create_beam_distribution_from_state(self._cache, self.n_particles)
+        # self._cache["output_beam"] = to_openpmd_particlegroup(beam)
