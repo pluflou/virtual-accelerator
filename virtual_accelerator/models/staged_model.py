@@ -151,12 +151,6 @@ class StagedModel(LUMEModel):
             model.reset()
 
 
-# get lume model instances for each stage of the accelerator
-<<<<<<< HEAD
-from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
-from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
-
-
 def get_cu_hxr_staged_model(**kwargs) -> StagedModel:
     """
 
