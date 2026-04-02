@@ -13,7 +13,7 @@ model = get_cu_hxr_staged_model()
 # for i in model.supported_variables:
 #     print(i)
 SCAN_QUAD_PV = "QUAD:IN20:525:BCTRL"
-model.set({SCAN_QUAD_PV: -10.5})
+model.set({SCAN_QUAD_PV: -15})
 b = model.get(["OTR4_beam"])
 
 print(b["OTR4_beam"]["norm_emit_x"])
