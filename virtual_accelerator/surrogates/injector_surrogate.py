@@ -193,6 +193,9 @@ class InjectorSurrogate(LUMEModel):
     @classmethod
     def _load_torch_model(cls) -> TorchModel:
         """Load :class:`TorchModel` with all resource paths resolved.
+        self._cache = self.model._cache
+        self.set({})
+        self.update_state()
 
         Writes a temporary config YAML whose resource paths are absolute so
         that ``TorchModel`` can locate them regardless of the working directory.
