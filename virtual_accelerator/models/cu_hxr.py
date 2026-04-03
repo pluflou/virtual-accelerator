@@ -84,7 +84,7 @@ def get_cu_hxr_bmad_model(
     if track_beam:
         if start_element == "OTR2" and custom_beam_path is None:
             beam_path = os.path.join(
-                Path(__file__).parent, "../bmad", "bmad_set_beam2000_pg"
+                Path(__file__).parent, "../bmad", "test_beam" #"bmad_set_beam2000_pg"
             )
         elif custom_beam_path is not None:
             beam_path = custom_beam_path

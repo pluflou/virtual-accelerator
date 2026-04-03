@@ -5,9 +5,6 @@ from lume.variables.variable import Variable
 from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
 from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
 
-from virtual_accelerator.surrogates.injector_surrogate import InjectorSurrogate
-from virtual_accelerator.models.cu_hxr import get_cu_hxr_bmad_model
-
 
 class StagedModel(LUMEModel):
     """
@@ -130,6 +127,7 @@ class StagedModel(LUMEModel):
 
             if model_values:
                 # set the model variables and run the model
+                print(f"Setting variables for model {model}: {model_values}")
                 model.set(model_values)
 
                 # remove set variables from input values

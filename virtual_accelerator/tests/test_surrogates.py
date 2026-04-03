@@ -5,7 +5,6 @@ def test_injector_surrogate():
     # test to make sure that the surrogate can be
     # initialized and returns an output beam distribution
     surrogate = InjectorSurrogate(n_particles=1000)
-    surrogate.set({"QUAD:IN20:525:BCTRL": 0.0})
     output = surrogate.get(["output_beam"])
     assert "output_beam" in output
     beam = output["output_beam"]

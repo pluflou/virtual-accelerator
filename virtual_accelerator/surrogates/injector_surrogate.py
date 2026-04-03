@@ -174,7 +174,8 @@ class InjectorSurrogate(LUMEModel):
         self.model = LUMETorchModel(tm)
         self.n_particles = n_particles
         self._cache: dict[str, Any] = {}
-        self.reset()
+        self.set({}) # Initializing with defaults of NN model
+        self.update_state()
 
     @classmethod
     def _resolve_resource_paths(cls, config: dict, base_dir: Path) -> dict:
@@ -193,10 +194,6 @@ class InjectorSurrogate(LUMEModel):
     @classmethod
     def _load_torch_model(cls) -> TorchModel:
         """Load :class:`TorchModel` with all resource paths resolved.
-        self._cache = self.model._cache
-        self.set({})
-        self.update_state()
-
         Writes a temporary config YAML whose resource paths are absolute so
         that ``TorchModel`` can locate them regardless of the working directory.
         The temporary file is removed after loading.
@@ -223,14 +220,10 @@ class InjectorSurrogate(LUMEModel):
 
     def _set(self, values: Mapping[str, Any]) -> None:
         """Update model state and regenerate exported output beam."""
+        for name, value in values.items():
+            self._cache[name] = value
         self.model.set(dict(values))
-
-        model_cache = getattr(self.model, "_cache", {})
-        scalarized_cache = {k: _to_python_scalar(v, k) for k, v in model_cache.items()}
-
-        beam = create_beam_distribution_from_state(scalarized_cache, self.n_particles)
-        scalarized_cache["output_beam"] = to_openpmd_particlegroup(beam)
-        self._cache = scalarized_cache
+        self.update_state()
 
     @property
     def supported_variables(self) -> dict[str, Any]:
@@ -244,3 +237,13 @@ class InjectorSurrogate(LUMEModel):
     def reset(self):
         self.model.reset()
         self._cache = {}
+
+    def update_state(self):
+        """Update internal cache with current model state and regenerate output beam."""
+        self._cache.update(self.model.get(self.model.supported_variables.keys()))
+
+        scalarized_cache = {k: _to_python_scalar(v, k) for k, v in self._cache.items()}
+
+        beam = create_beam_distribution_from_state(scalarized_cache, self.n_particles)
+        scalarized_cache["output_beam"] = to_openpmd_particlegroup(beam)
+        self._cache = scalarized_cache
