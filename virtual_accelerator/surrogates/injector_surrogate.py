@@ -81,8 +81,6 @@ def create_beam_distribution_from_state(state, n_particles) -> ParticleBeam:
     )
     beam.particles = beam.particles.squeeze()
     return beam
-
-
 class InjectorSurrogate(LUMEModel):
     def __init__(self, n_particles=10000):
         super().__init__()
@@ -94,8 +92,8 @@ class InjectorSurrogate(LUMEModel):
         self.n_particles = n_particles
 
         self._cache = self.model._cache
-        # self.set({})
-        # self.update_state()
+        self.set({})
+        self.update_state()
 
     def _get(self, names):
         return {name: self._cache[name] for name in names}
@@ -106,16 +104,7 @@ class InjectorSurrogate(LUMEModel):
 
         self.model.set(values)
 
-        # replace torch tensors with floats
-        for key, value in self._cache.items():
-            if isinstance(value, torch.Tensor):
-                self._cache[key] = value.item()
-
-        # update a outgoing beam distribution
-        beam = create_beam_distribution_from_state(self._cache, self.n_particles)
-        self._cache["output_beam"] = to_openpmd_particlegroup(beam)
-
-        # self.update_state()
+        self.update_state()
 
     @property
     def supported_variables(self):
@@ -130,6 +119,63 @@ class InjectorSurrogate(LUMEModel):
 
     def update_state(self):
         self._cache.update(self.model.get(list(self.model.supported_variables.keys())))
+
+        # replace torch tensors with floats
+        for key, value in self._cache.items():
+            if isinstance(value, torch.Tensor):
+                self._cache[key] = value.item()
+
+        # update a outgoing beam distribution
+        beam = create_beam_distribution_from_state(self._cache, self.n_particles)
+        self._cache["output_beam"] = to_openpmd_particlegroup(beam)
+
+# class InjectorSurrogate(LUMEModel):
+#     def __init__(self, n_particles=10000):
+#         super().__init__()
+#         config_path = os.path.join(
+#             Path(__file__).parent, "../../.submodules/repo/model_config.yaml"
+#         )
+#         tm = TorchModel(config_path)
+#         self.model = LUMETorchModel(tm)
+#         self.n_particles = n_particles
+#
+#         self._cache = self.model._cache
+#         # self.set({})
+#         # self.update_state()
+#
+#     def _get(self, names):
+#         return {name: self._cache[name] for name in names}
+#
+#     def _set(self, values):
+#         for name, value in values.items():
+#             self._cache[name] = value
+#
+#         self.model.set(values)
+#
+#         # replace torch tensors with floats
+#         for key, value in self._cache.items():
+#             if isinstance(value, torch.Tensor):
+#                 self._cache[key] = value.item()
+#
+#         # update a outgoing beam distribution
+#         beam = create_beam_distribution_from_state(self._cache, self.n_particles)
+#         self._cache["output_beam"] = to_openpmd_particlegroup(beam)
+#
+#         # self.update_state()
+#
+#     @property
+#     def supported_variables(self):
+#         v = self.model.supported_variables
+#         v.update(
+#             {"output_beam": ParticleGroupVariable(name="output_beam", read_only=True)}
+#         )
+#         return v
+#
+#     def reset(self):
+#         self.model.reset()
+#
+#     def update_state(self):
+#         self._cache.update(self.model.get(list(self.model.supported_variables.keys())))
 
         # # replace torch tensors with floats
         # for key, value in self._cache.items():

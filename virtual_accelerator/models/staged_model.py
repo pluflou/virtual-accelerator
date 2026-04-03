@@ -167,14 +167,6 @@ def get_cu_hxr_staged_model(**kwargs) -> StagedModel:
 
     injector_surrogate = InjectorSurrogate()
 
-    #cu_hxr_bmad_model = get_cu_hxr_bmad_model(end_element="OTR4", track_beam=True)
-    # print(
-    #     "Setting track_type to 1 for cu_hxr_bmad_model to enable tracking in the staged model."
-    # )
-    # cu_hxr_bmad_model.set({"track_type": 1})
-    # print(
-    #     "Staging the injector surrogate and CU HXR BMAD model together in a StagedModel instance."
-    # )
     cu_hxr_bmad_model = get_cu_hxr_bmad_model(**kwargs)
 
     staged_model = StagedModel([injector_surrogate, cu_hxr_bmad_model])

@@ -172,10 +172,10 @@ class ModelImageSource(ImageSource):
         if beam is not None:
             x = np.asarray(beam["x"])
             px = np.asarray(beam["px"])
-            n = len(x)
-            if n > self.max_scatter_points:
-                idx = np.random.choice(n, self.max_scatter_points, replace=False)
-                x, px = x[idx], px[idx]
+            # n = len(x)
+            # if n > self.max_scatter_points:
+            #     idx = np.random.choice(n, self.max_scatter_points, replace=False)
+            #     x, px = x[idx], px[idx]
             bx, bpx = x * 1e6, px  # x: m -> um, px: eV/c
 
         return BeamFrame(

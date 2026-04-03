@@ -30,7 +30,7 @@ print(b["OTR4_beam"]["norm_emit_x"])
 #     print(f"Setting {SCAN_QUAD_PV} to {quad_value:.1f}")
 #     model.set({SCAN_QUAD_PV: quad_value})
 #     image = model.get([OTR_IMAGE_PV])[OTR_IMAGE_PV]
-#     ax[i].imshow(-image, rasterized=True)
+#     ax[i].imshow(image, rasterized=True)
 #     ax[i].set_title(f"{SCAN_QUAD_PV}={quad_value:.1f}", fontsize="x-small")
 #
 # fig.savefig("cu_hxr_staged_model_quad_scan.svg")

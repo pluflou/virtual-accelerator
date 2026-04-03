@@ -31,6 +31,7 @@ def imports():
     import matplotlib
 
     matplotlib.use("Agg")  # non-interactive backend – required for marimo
+    import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
     import matplotlib.gridspec as gridspec
     import matplotlib.ticker as ticker
@@ -42,7 +43,7 @@ def imports():
     # ── user-facing configuration ────────────────────────────────────────────
     LCLS_LATTICE_PATH = "/Users/smiskov/SLAC/lcls-lattice"
     SCAN_PV = "QUAD:IN20:525:BCTRL"
-    IMAGE_PV = "OTRS:IN20:711:Image:ArrayData"
+    IMAGE_PV = "OTRS:IN20:621:Image:ArrayData" # 621 or 711
     XRMS_PV = "OTRS:IN20:571:XRMS"
     YRMS_PV = "OTRS:IN20:571:YRMS"
     MAX_HISTORY = 200
@@ -58,6 +59,7 @@ def imports():
         deque,
         Path,
         matplotlib,
+        mcolors,
         plt,
         gridspec,
         ticker,
@@ -95,6 +97,11 @@ def controls(mo):
         start=0.0, stop=15.0, step=0.5, value=15.0, label="Max (kG)"
     )
     scan_steps_slider = mo.ui.slider(start=3, stop=50, step=1, value=5, label="Steps")
+    image_scale_mode = mo.ui.dropdown(
+        options=["robust", "fixed", "auto"],
+        value="robust",
+        label="Image scale",
+    )
     show_sigma_x = mo.ui.checkbox(value=True, label="σx")
     show_sigma_y = mo.ui.checkbox(value=True, label="σy")
     show_sigma_z = mo.ui.checkbox(value=True, label="σz")
@@ -114,6 +121,7 @@ def controls(mo):
                     scan_min_slider,
                     scan_max_slider,
                     scan_steps_slider,
+                    image_scale_mode,
                     run_button,
                     mo.md(
                         "<span style='display:inline-block; width: 0.75rem;'></span>"
@@ -149,6 +157,7 @@ def controls(mo):
         scan_min_slider,
         scan_max_slider,
         scan_steps_slider,
+        image_scale_mode,
         show_sigma_x,
         show_sigma_y,
         show_sigma_z,
@@ -190,11 +199,13 @@ def state(mo, NB_DIR, sys):
 # ── Cell 3: persistent dashboard setup ───────────────────────────────────────
 @app.cell
 def dashboard(
+    mcolors,
     plt,
     gridspec,
     ticker,
     np,
     SCAN_PV,
+    image_scale_mode,
     show_sigma_x,
     show_sigma_y,
     show_sigma_z,
@@ -213,6 +224,10 @@ def dashboard(
     GREEN = "#3fb950"
     PURPLE = "#d2a8ff"
     CYAN = "#79c0ff"
+    IMAGE_POWER_GAMMA = 0.55
+    IMAGE_PERCENTILE_LOW = 2.0
+    IMAGE_PERCENTILE_HIGH = 99.7
+    IMAGE_SCALE_WARMUP_FRAMES = 4
 
     def _style_ax(ax, title=""):
         ax.set_facecolor(PANEL)
@@ -239,7 +254,7 @@ def dashboard(
     )
 
     # image panel
-    ax_img = fig.add_subplot(gs[1, 0])
+    ax_img = fig.add_subplot(gs[0, 0])
     _style_ax(ax_img, "OTR4 Beam Image")
     image_artist = ax_img.imshow(
         np.zeros((2, 2)),
@@ -247,6 +262,12 @@ def dashboard(
         aspect="auto",
         origin="upper",
         interpolation="nearest",
+        norm=mcolors.PowerNorm(
+            gamma=IMAGE_POWER_GAMMA,
+            vmin=0.0,
+            vmax=1.0,
+            clip=True,
+        ),
         visible=False,
     )
     colorbar = fig.colorbar(image_artist, ax=ax_img, fraction=0.046, pad=0.04)
@@ -270,8 +291,8 @@ def dashboard(
     ax_img.set_xlabel("", fontsize=8)
 
     # scatter panel
-    ax_ps = fig.add_subplot(gs[0, 0])
-    _style_ax(ax_ps, "Beam Phase-Space  x – px at OTR2")
+    ax_ps = fig.add_subplot(gs[0, 1])
+    _style_ax(ax_ps, "Beam Phase-Space  x – px at OTR4")
     scatter_artist = ax_ps.scatter(
         [], [], s=0.8, alpha=0.35, color=BLUE, rasterized=True
     )
@@ -289,8 +310,8 @@ def dashboard(
     ax_ps.set_ylabel("px  (eV/c)", fontsize=8)
 
     # scalar timeseries panel
-    ax_ts = fig.add_subplot(gs[0, 1])
-    _style_ax(ax_ts, "Scalar Diagnostics vs Quad Setting at OTR2")
+    ax_ts = fig.add_subplot(gs[1, 0])
+    _style_ax(ax_ts, "Scalar Diagnostics vs Quad Setting at OTR4")
     line_x = ax_ts.plot(
         [], [], color=BLUE, lw=1.8, marker="o", ms=5, label="σ_x  (µm)"
     )[0]
@@ -373,6 +394,12 @@ def dashboard(
         "emx": [],
         "emy": [],
     }
+    image_scale_state = {
+        "mode": None,
+        "sample_count": 0,
+        "frozen_vmin": None,
+        "frozen_vmax": None,
+    }
 
     def _pad_bounds(values, fraction=0.08, minimum=1.0):
         if len(values) == 0:
@@ -384,6 +411,68 @@ def dashboard(
             return (vmin - pad, vmax + pad)
         pad = max((vmax - vmin) * fraction, minimum)
         return (vmin - pad, vmax + pad)
+
+    def _reset_image_scale_state():
+        image_scale_state["mode"] = image_scale_mode.value
+        image_scale_state["sample_count"] = 0
+        image_scale_state["frozen_vmin"] = None
+        image_scale_state["frozen_vmax"] = None
+
+    def _compute_image_bounds(display_image):
+        finite = display_image[np.isfinite(display_image)]
+        if finite.size == 0:
+            return (0.0, 1.0)
+
+        low = float(np.percentile(finite, IMAGE_PERCENTILE_LOW))
+        high = float(np.percentile(finite, IMAGE_PERCENTILE_HIGH))
+        low = max(low, 0.0)
+        if np.isclose(low, high):
+            high = low + max(max(abs(low), abs(high)) * 0.1, 1e-18)
+        high = max(high, low + 1e-18)
+        return (low, high)
+
+    def _set_image_norm(vmin, vmax, mode):
+        if mode == "robust":
+            norm = mcolors.PowerNorm(
+                gamma=IMAGE_POWER_GAMMA,
+                vmin=vmin,
+                vmax=vmax,
+                clip=True,
+            )
+        else:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
+
+        image_artist.set_norm(norm)
+        colorbar.update_normal(image_artist)
+        colorbar.update_ticks()
+
+    def _update_image_scale(display_image):
+        mode = image_scale_mode.value
+        if image_scale_state["mode"] != mode:
+            _reset_image_scale_state()
+
+        current_vmin, current_vmax = _compute_image_bounds(display_image)
+
+        if mode == "auto":
+            _set_image_norm(current_vmin, current_vmax, mode)
+            return
+
+        if image_scale_state["sample_count"] < IMAGE_SCALE_WARMUP_FRAMES:
+            frozen_vmin = image_scale_state["frozen_vmin"]
+            frozen_vmax = image_scale_state["frozen_vmax"]
+            image_scale_state["frozen_vmin"] = (
+                current_vmin if frozen_vmin is None else min(frozen_vmin, current_vmin)
+            )
+            image_scale_state["frozen_vmax"] = (
+                current_vmax if frozen_vmax is None else max(frozen_vmax, current_vmax)
+            )
+            image_scale_state["sample_count"] += 1
+
+        _set_image_norm(
+            image_scale_state["frozen_vmin"],
+            image_scale_state["frozen_vmax"],
+            mode,
+        )
 
     def _refresh_scalar_legend():
         handles = []
@@ -461,9 +550,8 @@ def dashboard(
         image_artist.set_visible(False)
         image_placeholder.set_visible(True)
         image_artist.set_data(np.zeros((2, 2)))
-        image_artist.set_clim(0.0, 1.0)
-        colorbar.update_normal(image_artist)
-        colorbar.update_ticks()
+        _reset_image_scale_state()
+        _set_image_norm(0.0, 1.0, "robust")
         ax_img.set_xlabel("", fontsize=8)
 
         scatter_artist.set_offsets(np.empty((0, 2)))
@@ -498,19 +586,9 @@ def dashboard(
         if frame.image is not None:
             image_placeholder.set_visible(False)
             image_artist.set_visible(True)
-            display_image = -np.asarray(frame.image)  # match test_example.py
+            display_image = np.asarray(frame.image, dtype=float)
             image_artist.set_data(display_image)
-            finite = display_image[np.isfinite(display_image)]
-            if finite.size:
-                _img_min = float(np.min(finite))
-                _img_max = float(np.max(finite))
-            else:
-                _img_min, _img_max = 0.0, 1.0
-            if np.isclose(_img_min, _img_max):
-                _img_max = _img_min + max(abs(_img_min) * 0.1, 1e-18)
-            image_artist.set_clim(_img_min, _img_max)
-            colorbar.update_normal(image_artist)
-            colorbar.update_ticks()
+            _update_image_scale(display_image)
             ax_img.set_xlabel(f"{SCAN_PV} = {frame.scan_value:.2f} kG", fontsize=8)
 
         if (
@@ -669,7 +747,7 @@ async def scan_task(
                 )
 
                 os.environ["LCLS_LATTICE"] = LCLS_LATTICE_PATH
-                _model = get_cu_hxr_staged_model()
+                _model = get_cu_hxr_staged_model(end_element="OTR4", track_beam=True)
                 _source = ModelImageSource(
                     model=_model,
                     image_pv=IMAGE_PV,
