@@ -127,7 +127,6 @@ class StagedModel(LUMEModel):
 
             if model_values:
                 # set the model variables and run the model
-                print(f"Setting variables for model {model}: {model_values}")
                 model.set(model_values)
 
                 # remove set variables from input values

@@ -207,7 +207,7 @@ class InjectorSurrogate(LUMEModel):
         resolved_config = cls._resolve_resource_paths(config, base_dir)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tmp:
-            yaml.safe_dump(resolved_config, tmp)
+            yaml.safe_dump(resolved_config, tmp, sort_keys=False)
             tmp_path = Path(tmp.name)
 
         try:
