@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 import os
 import tempfile
@@ -14,6 +15,10 @@ from lume_torch.models.torch_model import TorchModel
 from scipy import constants
 
 OTR2_BEAM_ENERGY = 135.0e6  # eV
+CAMR_R_DIST_VARIABLE = "CAMR:IN20:186:R_DIST"
+CAMR_XRMS_VARIABLE = "CAMR:IN20:186:XRMS"
+CAMR_YRMS_VARIABLE = "CAMR:IN20:186:YRMS"
+UNSET_CAMR_RMS_VALUE = float("nan")
 
 
 def _tensor_to_numpy(value: Any) -> np.ndarray:
@@ -32,6 +37,29 @@ def _to_python_scalar(value: Any, key: str) -> Any:
             f"Expected scalar tensor for cache key '{key}', got shape {tuple(value.shape)}"
         )
     return value.item()
+
+
+def _copy_variable_with_name(variable: Any, name: str) -> Any:
+    """Return a shallow copy of a variable-like object with an updated name."""
+    cloned = copy.copy(variable)
+    if hasattr(cloned, "name"):
+        cloned.name = name
+    return cloned
+
+
+def _compute_r_dist(x_rms: Any, y_rms: Any) -> Any:
+    """Compute the compound CAMR radial RMS using NumPy or torch semantics."""
+    if isinstance(x_rms, torch.Tensor) or isinstance(y_rms, torch.Tensor):
+        x_tensor = x_rms if isinstance(x_rms, torch.Tensor) else torch.as_tensor(x_rms)
+        y_tensor = (
+            y_rms.to(dtype=x_tensor.dtype, device=x_tensor.device)
+            if isinstance(y_rms, torch.Tensor)
+            else torch.as_tensor(y_rms, dtype=x_tensor.dtype, device=x_tensor.device)
+        )
+        return torch.sqrt(x_tensor.square() + y_tensor.square())
+
+    r_dist = np.sqrt(np.asarray(x_rms) ** 2 + np.asarray(y_rms) ** 2)
+    return r_dist.item() if np.ndim(r_dist) == 0 else r_dist
 
 
 def to_openpmd_particlegroup(beam) -> "openpmd.ParticleGroup":  # noqa: F821
@@ -120,6 +148,7 @@ class InjectorSurrogate(LUMEModel):
 
     # Config keys whose values are resource paths that need resolving
     _RESOURCE_KEYS = ("model", "input_transformers", "output_transformers")
+    _ADAPTER_INPUT_VARIABLES = (CAMR_XRMS_VARIABLE, CAMR_YRMS_VARIABLE)
 
     @classmethod
     def _candidate_config_roots(cls) -> list[Path]:
@@ -175,9 +204,14 @@ class InjectorSurrogate(LUMEModel):
         tm = self._load_torch_model()
         self.model = LUMETorchModel(tm)
         self.n_particles = n_particles
-        self._cache: dict[str, Any] = {}
+        self._cache: dict[str, Any] = {
+            CAMR_XRMS_VARIABLE: UNSET_CAMR_RMS_VALUE,
+            CAMR_YRMS_VARIABLE: UNSET_CAMR_RMS_VALUE,
+        }
         self.set({})  # Initializing with defaults of NN model
-        self.update_state()
+        self._default_model_values = {
+            key: self._cache[key] for key in self.model.supported_variables.keys()
+        }
 
     @classmethod
     def _resolve_resource_paths(cls, config: dict, base_dir: Path) -> dict:
@@ -221,17 +255,60 @@ class InjectorSurrogate(LUMEModel):
     def _get(self, names: Iterable[str]) -> dict[str, Any]:
         return {name: self._cache[name] for name in names}
 
+    def _prepare_model_values(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        """Translate adapter inputs into TorchModel inputs before dispatch."""
+        model_values = {
+            key: value
+            for key, value in values.items()
+            if key not in self._ADAPTER_INPUT_VARIABLES
+        }
+        has_xrms = CAMR_XRMS_VARIABLE in values
+        has_yrms = CAMR_YRMS_VARIABLE in values
+
+        if has_xrms and has_yrms:
+            model_values[CAMR_R_DIST_VARIABLE] = _compute_r_dist(
+                values[CAMR_XRMS_VARIABLE], values[CAMR_YRMS_VARIABLE]
+            )
+        elif has_xrms or has_yrms:
+            model_values.setdefault(
+                CAMR_R_DIST_VARIABLE, self._default_model_values[CAMR_R_DIST_VARIABLE]
+            )
+
+        return model_values
+
     def _set(self, values: Mapping[str, Any]) -> None:
         """Update model state and regenerate exported output beam."""
+        has_xrms = CAMR_XRMS_VARIABLE in values
+        has_yrms = CAMR_YRMS_VARIABLE in values
+
+        # Write non-adapter inputs to cache
         for name, value in values.items():
-            self._cache[name] = value
-        self.model.set(dict(values))
+            if name not in self._ADAPTER_INPUT_VARIABLES:
+                self._cache[name] = value
+
+        # Update adapter cache based on what was provided
+        if has_xrms and has_yrms:
+            self._cache[CAMR_XRMS_VARIABLE] = values[CAMR_XRMS_VARIABLE]
+            self._cache[CAMR_YRMS_VARIABLE] = values[CAMR_YRMS_VARIABLE]
+        elif has_xrms or has_yrms or CAMR_R_DIST_VARIABLE in values:
+            self._cache[CAMR_XRMS_VARIABLE] = UNSET_CAMR_RMS_VALUE
+            self._cache[CAMR_YRMS_VARIABLE] = UNSET_CAMR_RMS_VALUE
+
+        self.model.set(self._prepare_model_values(values))
         self.update_state()
 
     @property
     def supported_variables(self) -> dict[str, Any]:
         """Return supported variables without mutating wrapped model metadata."""
         variables = dict(self.model.supported_variables)
+        r_dist_variable = variables.get(CAMR_R_DIST_VARIABLE)
+        if r_dist_variable is not None:
+            variables[CAMR_XRMS_VARIABLE] = _copy_variable_with_name(
+                r_dist_variable, CAMR_XRMS_VARIABLE
+            )
+            variables[CAMR_YRMS_VARIABLE] = _copy_variable_with_name(
+                r_dist_variable, CAMR_YRMS_VARIABLE
+            )
         variables["output_beam"] = ParticleGroupVariable(
             name="output_beam", read_only=True
         )
@@ -239,11 +316,19 @@ class InjectorSurrogate(LUMEModel):
 
     def reset(self):
         self.model.reset()
-        self._cache = {}
+        self._cache = {
+            CAMR_XRMS_VARIABLE: UNSET_CAMR_RMS_VALUE,
+            CAMR_YRMS_VARIABLE: UNSET_CAMR_RMS_VALUE,
+        }
+        self.update_state()
 
     def update_state(self):
-        self._cache.update(self.model.get(list(self.model.supported_variables.keys())))
-
-        self._cache = {k: _to_python_scalar(v, k) for k, v in self._cache.items()}
+        adapter_inputs = {
+            key: self._cache.get(key, UNSET_CAMR_RMS_VALUE)
+            for key in self._ADAPTER_INPUT_VARIABLES
+        }
+        model_state = self.model.get(list(self.model.supported_variables.keys()))
+        self._cache.update({k: _to_python_scalar(v, k) for k, v in model_state.items()})
+        self._cache.update(adapter_inputs)
         beam = create_beam_distribution_from_state(self._cache, self.n_particles)
         self._cache["output_beam"] = to_openpmd_particlegroup(beam)
