@@ -55,7 +55,7 @@ docs = [
 ]
 
 [tool.setuptools.packages.find]
-include = [ "virtual_accelerator", ]
+include = [ "virtual_accelerator", "subtrees/lcls_cu_injector_ml_model" ]
 namespaces = false
 
 [tool.setuptools.package-data]
